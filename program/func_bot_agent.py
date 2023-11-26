@@ -2,6 +2,7 @@ from func_private import place_market_order, check_order_status
 from datetime import datetime, timedelta
 # from func_messaging import send_message
 import time
+import traceback
 
 from pprint import pprint
 
@@ -70,15 +71,19 @@ class BotAgent:
   def check_order_status_by_id(self, order_id):
 
     # Allow time to process
-    time.sleep(2)
+    time.sleep(5)
 
     # Check order status
     order_status = check_order_status(self.client, order_id)
 
     # Guard: If order cancelled move onto next Pair
     if order_status == "CANCELED":
-      print(f"{self.market_1} vs {self.market_2} - Order cancelled...")
+      print(f"\033[91m{self.market_1} vs {self.market_2} - Order cancelled\033[0m")
+      print("\033[90m─\033[0m" * 50)
       self.order_dict["pair_status"] = "FAILED"
+      # Print the value of self.order_dict for debugging
+      print(f"self.order_dict1: {self.order_dict}")
+      traceback.print_exc()
       return "failed"
 
     # Guard: If order not filled wait until order expiration
@@ -88,15 +93,20 @@ class BotAgent:
 
       # Guard: If order cancelled move onto next Pair
       if order_status == "CANCELED":
-        print(f"{self.market_1} vs {self.market_2} - Order cancelled...")
+        print(f"\033[91m{self.market_1} vs {self.market_2} - Order cancelled\033[0m")
+        print("\033[90m─\033[0m" * 50)
         self.order_dict["pair_status"] = "FAILED"
+        # Print the value of self.order_dict for debugging
+        print(f"self.order_dict2: {self.order_dict}")
+        traceback.print_exc()
         return "failed"
 
       # Guard: If not filled, cancel order
       if order_status != "FILLED":
         self.client.private.cancel_order(order_id=order_id)
         self.order_dict["pair_status"] = "ERROR"
-        print(f"{self.market_1} vs {self.market_2} - Order error...")
+        print(f"\033[91m{self.market_1} vs {self.market_2} - Order error\033[0m")
+        print("\033[90m─\033[0m" * 50)
         return "error"
 
     # Return live
@@ -106,11 +116,8 @@ class BotAgent:
   def open_trades(self):
 
     # Print status
-    print("---")
-    print(f"{self.market_1}: Placing first order...")
-    print(f"Side: {self.base_side}, Size: {self.base_size}, Price: {self.base_price}")
-    print("---")
-
+    print("\033[90m─\033[0m" * 50)
+    print(f"{self.market_1:<10} {self.base_side:<4} {self.base_size:>5} at {self.base_price:>6} USD for {float(self.base_size) * float(self.base_price):>5.2f} USD")
     # Place Base Order
     try:
       base_order = place_market_order(
@@ -128,22 +135,20 @@ class BotAgent:
     except Exception as e:
       self.order_dict["pair_status"] = "ERROR"
       self.order_dict["comments"] = f"Market 1 {self.market_1}: , {e}"
+      print(f"\033[91mError placing base order: {e}\033[0m")
       return self.order_dict
 
     # Ensure order is live before processing
     order_status_m1 = self.check_order_status_by_id(self.order_dict["order_id_m1"])
 
-    # Guard: Aborder if order failed
+    # Guard: Abort if order failed
     if order_status_m1 != "live":
       self.order_dict["pair_status"] = "ERROR"
       self.order_dict["comments"] = f"{self.market_1} failed to fill"
       return self.order_dict
 
     # Print status - opening second order
-    print("---")
-    print(f"{self.market_2}: Placing second order...")
-    print(f"Side: {self.quote_side}, Size: {self.quote_size}, Price: {self.quote_price}")
-    print("---")
+    print(f"{self.market_2:<10} {self.quote_side:<4} {self.quote_size:>5} at {self.quote_price:>6} USD for {float(self.quote_size) * float(self.quote_price):>5.2f} USD")
 
     # Place Quote Order
     try:
@@ -162,19 +167,19 @@ class BotAgent:
     except Exception as e:
       self.order_dict["pair_status"] = "ERROR"
       self.order_dict["comments"] = f"Market 2 {self.market_2}: , {e}"
+      print(f"\033[91mError placing quote order: {e}\033[0m")
       return self.order_dict
 
     # Ensure order is live before processing
     order_status_m2 = self.check_order_status_by_id(self.order_dict["order_id_m2"])
 
-    # Guard: Aborder if order failed
+    # Guard: Abort if order failed
     if order_status_m2 != "live":
       self.order_dict["pair_status"] = "ERROR"
       self.order_dict["comments"] = f"{self.market_1} failed to fill"
 
       # Close order 1:
       try:
-        print(f"Attempting to close the first order for {self.market_1}")
         close_order = place_market_order(
           self.client,
           market=self.market_1,
@@ -183,22 +188,11 @@ class BotAgent:
           price=self.accept_failsafe_base_price,
           reduce_only=True
         )
-        
-        # Check if the close order placement was successful
-        if close_order and "order" in close_order and "id" in close_order["order"]:
-            print(f"Close order placed successfully for {self.market_1}, Order ID: {close_order['order']['id']}")
-        else:
-            print(f"Failed to place close order for {self.market_1}")
-            
+
         # Ensure order is live before proceeding
         time.sleep(2)
-        print(f"Checking status of the close order for {self.market_1}")
         order_status_close_order = check_order_status(self.client, close_order["order"]["id"])
-        
-        if order_status_close_order == "FILLED":
-          print(f"Close order for {self.market_1} filled successfully")
-        else:
-          print(f"Close order for {self.market_1} did not fill. Current status: {order_status_close_order}")
+        if order_status_close_order != "FILLED":
           print("ABORT PROGRAM")
           print("Unexpected Error")
           print(order_status_close_order)
@@ -225,3 +219,4 @@ class BotAgent:
     else:
       self.order_dict["pair_status"] = "LIVE"
       return self.order_dict
+      
